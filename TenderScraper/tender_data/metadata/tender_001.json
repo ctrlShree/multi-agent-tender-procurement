@@ -1,0 +1,20 @@
+{
+  "tender_category": "Works",
+  "tender_type": "Open Tender",
+  "form_of_contract": "Item Rate",
+  "no_of_covers": "2",
+  "emd_amount_in_rs": "8,58,330",
+  "emd_amount": "8,58,330",
+  "tender_fee_in_rs": "1,180",
+  "itemwise_technical_evaluation_allowed": "No",
+  "allow_two_stage_bidding": "No",
+  "is_multi_currency_allowed_for_boq": "No",
+  "withdrawal_allowed": "Yes",
+  "_raw_page_text": "Screen Reader Access\n15-Mar-2026 Search | Active Tenders | Tenders by Closing Date | Corrigendum | Results of Tenders\nGovernment eProcurement System\nMIS Reports\nTenders by Location\nTenders by Organisation\nTenders by Classification\nTenders in Archive\nTenders Status\nCancelled/Retendered\nDownloads\nDebarment List\nAnnouncements\nAwards\nSite compatibility\n  View More Details\nTender Details\n  Basic Details\nOrganisation Chain AAI Cargo Logistics and Allied Services Company Ltd||AAICLAS Kolkata Cargo Office\nTender Reference Number AAI/KOL/Misc.Capital/2025-26\nTender ID 2026_AAICL_270511_1 Withdrawal Allowed Yes\nTender Type Open Tender Form Of Contract Item Rate\nTender Category Works No. of Covers 2\nGeneral Technical Evaluation Allowed No ItemWise Technical Evaluation Allowed No\nPayment Mode Offline Is Multi Currency Allowed For BOQ No\nIs Multi Currency Allowed For Fee No Allow Two Stage Bidding No\n  Payment Instruments\nOffline\nS.No Instrument Type\n1 NEFT\n2 R-T-G-S\nCovers Information, No. Of Covers - 2\nCover No Cover Type Description Document Type\n1 Fee/PreQual/Technical NIT .pdf\nSCANNED COPY OF EMD .pdf\n2 Finance BOQ .xls\n      Tender Fee Details, [Total Fee in ₹ * - 1,180]\nTender Fee in ₹ 1,180\nFee Payable To AAI CARGO LOGISTICS AND ALLIED SERVICE CO. LTD. Fee Payable At KOLKATA\nTender Fee Exemption Allowed No\nEMD Fee Details\nEMD Amount in ₹ 8,58,330 EMD Exemption Allowed No\nEMD Fee Type fixed EMD Percentage NA\nEMD Payable To AAI CARGO LOGISTICS AND ALLIED SERVICE CO. LTD. EMD Payable At KOLKATA\n    Work Item Details\nTitle AAI/KOL/Misc.Capital/2025-26\nWork Description CIVIL WORK\nNDA/Pre Qualification Please refer Tender documents.\nIndependent External Monitor/Remarks NA\nTender Value in ₹ 2,86,11,000 Product Category Civil Works Sub category NA \nContract Type Tender Bid Validity(Days) 60 Period Of Work(Days) 330 \nLocation KOLKATA Pincode 700052 Pre Bid Meeting Place NA \nPre Bid Meeting Address NA  Pre Bid Meeting Date NA  Bid Opening Place KOLKATA\nShould Allow NDA Tender No  Allow Preferential Bidder No\n  Critical Dates\nPublished Date 11-Mar-2026 06:30 PM Bid Opening Date 01-Apr-2026 04:00 PM\nDocument Download / Sale Start Date 11-Mar-2026 06:30 PM Document Download / Sale End Date 31-Mar-2026 03:00 PM\nClarification Start Date 11-Mar-2026 06:30 PM Clarification End Date 20-Mar-2026 06:00 PM\nBid Submission Start Date 11-Mar-2026 06:30 PM Bid Submission End Date 31-Mar-2026 03:00 PM\n  Tenders Documents\nNIT Document\nS.No Document Name Description Document Size (in KB)\n1 Tendernotice_1.pdf   Tender Document 6833.81\nDownload as zip file\nWork Item Documents\nS.No Document Type Document Name Description Document Size (in KB)\n1 BOQ BOQ_315420.xls ITEM RATE BOQ 377.50\n  Tender Inviting Authority\nName DGM(E-C), AAICLAS\nAddress NICT BUILDING, NSCBI AIRPORT, KOLKATA\n  Back\n  Visitor No:9911860\nContents owned and maintained by concerned Departments in coordination with Finance Department and Information Technology Department, Government of India\nDesigned, Developed and Hosted by\nNational Informatics Centre Version : 1.09.23 23-Oct-2025\n(c) 2017 Tenders NIC, All rights reserved.\nSite best viewed with a screen resolution 1920 x 1080. Portal policies",
+  "title": "[AAI/KOL/Misc.Capital/2025-26]",
+  "tender_num": 1,
+  "zip_files": [
+    "work_315420.zip"
+  ],
+  "extracted_to": "E:\\FAI project\\Scraper\\tender_data\\extracted\\001_tender"
+}
