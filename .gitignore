@@ -1,3 +1,14 @@
+# Downloaded tender data (too large for GitHub)
+tender_data/zips/
+tender_data/extracted/
+
+# Debug files
+debug_page_source.html
+
+# Selenium
+chromedriver
+chromedriver.exe
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
