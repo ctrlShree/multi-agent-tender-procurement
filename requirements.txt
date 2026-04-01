@@ -1,0 +1,24 @@
+# Core ML / NLP
+transformers>=4.40.0
+datasets>=2.18.0
+evaluate>=0.4.0
+seqeval>=1.2.2
+sentence-transformers>=2.7.0
+torch>=2.2.0
+
+# Vector search
+faiss-cpu>=1.8.0
+
+# PDF processing
+pdfplumber>=0.11.0
+
+# Web scraping (Download Agent)
+selenium>=4.20.0
+webdriver-manager>=4.0.0
+requests>=2.31.0
+
+# LLM API
+groq>=0.5.0
+
+# Utilities
+numpy>=1.26.0
