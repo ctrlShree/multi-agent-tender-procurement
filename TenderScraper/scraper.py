@@ -1,19 +1,30 @@
 import os
 import re
+import sys
 import json
 import time
 import shutil
 import zipfile
+import argparse
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import Select
 from webdriver_manager.chrome import ChromeDriverManager
+from groq import Groq
+from dotenv import load_dotenv
+
+# Load API key from the env file sitting next to this script
+load_dotenv(dotenv_path=Path(__file__).parent / "env")
 
 # Configuration
-MAX_TENDERS = 5         
-MAX_PER_ORG = 50           
+MAX_TENDERS = 25
+MAX_PER_ORG = 50
+
+# Groq API key, read from env file or environment variable
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # Output folders
 BASE_DIR = os.path.join(os.getcwd(), "tender_data")
@@ -90,6 +101,152 @@ def extract_zip(zip_path, dest):
         return []
 
 
+# LLM-based category mapping
+
+def get_product_categories(driver):
+    """
+    Navigates to the Tender Search By Organisation page and reads all
+    available options from the Product Category dropdown.
+    Returns a list of option strings (excluding the default '-Select-').
+    """
+    SEARCH_URL = "https://etenders.gov.in/eprocure/app?page=FrontEndTendersByOrganisation&service=page"
+    driver.get(SEARCH_URL)
+    time.sleep(ORG_PAGE_WAIT)
+
+    try:
+        select_el = driver.find_element(By.XPATH, "//select[contains(@id,'prodCategory') or contains(@name,'prodCategory') or contains(@id,'productCategory')]")
+    except Exception:
+        # Fallback: find all <select> elements and pick the one labelled Product Category
+        selects = driver.find_elements(By.TAG_NAME, "select")
+        select_el = None
+        for s in selects:
+            # Look for the label near this select
+            try:
+                parent_text = s.find_element(By.XPATH, "ancestor::tr[1]").text
+                if "Product Category" in parent_text:
+                    select_el = s
+                    break
+            except Exception:
+                continue
+
+    if not select_el:
+        print("  Warning: Could not find Product Category dropdown. Scraping without filter.")
+        return []
+
+    select = Select(select_el)
+    options = [opt.text.strip() for opt in select.options if opt.text.strip() and opt.text.strip() != "-Select-"]
+    print(f"  Found {len(options)} product categories in dropdown.")
+    return options
+
+
+def map_profile_to_categories(company_profile, available_categories, groq_api_key):
+    """
+    Uses Groq/Llama to map a free-text company profile to the most relevant
+    Product Category options available in the portal dropdown.
+
+    Returns a list of matched category strings (1 or more).
+    Falls back to empty list if the API call fails.
+    """
+    if not groq_api_key:
+        print("  Warning: No GROQ_API_KEY set. Cannot map profile to category.")
+        return []
+
+    if not available_categories:
+        return []
+
+    categories_str = "\n".join(f"- {c}" for c in available_categories)
+
+    prompt = f"""You are helping a procurement scraper select the most relevant product categories from a government tender portal.
+
+Company profile: "{company_profile}"
+
+Available product categories on the portal:
+{categories_str}
+
+Instructions:
+- Select ALL categories that are relevant to the company profile.
+- Return ONLY a JSON array of the exact category strings from the list above, nothing else.
+- If nothing matches well, return the single closest match.
+- Example output: ["Electrical Works", "Civil Works"]
+
+Return only the JSON array, no explanation."""
+
+    try:
+        client = Groq(api_key=groq_api_key)
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=200,
+        )
+        raw = response.choices[0].message.content.strip()
+        # Parse the JSON array from the response
+        matched = json.loads(raw)
+        # Validate — only keep options that actually exist in the dropdown
+        matched = [c for c in matched if c in available_categories]
+        print(f"  LLM mapped profile to: {matched}")
+        return matched
+    except Exception as e:
+        print(f"  Warning: LLM category mapping failed ({e}). Scraping without filter.")
+        return []
+
+
+def search_by_category(driver, category, captcha_solved):
+    """
+    On the Tender Search By Organisation page, selects the given Product Category,
+    enters the CAPTCHA (manual on first run), and clicks Search.
+    Returns True if the search results loaded successfully.
+    """
+    SEARCH_URL = "https://etenders.gov.in/eprocure/app?page=FrontEndTendersByOrganisation&service=page"
+    driver.get(SEARCH_URL)
+    time.sleep(ORG_PAGE_WAIT)
+
+    # Select the Product Category
+    try:
+        select_els = driver.find_elements(By.TAG_NAME, "select")
+        product_select = None
+        for s in select_els:
+            try:
+                parent_text = s.find_element(By.XPATH, "ancestor::tr[1]").text
+                if "Product Category" in parent_text:
+                    product_select = s
+                    break
+            except Exception:
+                continue
+
+        if product_select:
+            Select(product_select).select_by_visible_text(category)
+            print(f"  Selected Product Category: '{category}'")
+            time.sleep(1)
+        else:
+            print(f"  Warning: Could not select Product Category '{category}'")
+    except Exception as e:
+        print(f"  Warning: Dropdown selection failed: {e}")
+
+    # Handle CAPTCHA
+    if not captcha_solved:
+        print("\n  Please solve the CAPTCHA in the browser window.")
+        captcha_text = input("  Type the CAPTCHA text shown and press ENTER: ").strip()
+        try:
+            captcha_input = driver.find_element(By.XPATH, "//input[contains(@id,'captcha') or contains(@name,'captcha') or contains(@placeholder,'aptcha')]")
+            captcha_input.clear()
+            captcha_input.send_keys(captcha_text)
+        except Exception:
+            print("  Warning: Could not find CAPTCHA input field. Please fill it manually.")
+            input("  Press ENTER once you have filled the CAPTCHA and are ready to search: ")
+
+    # Click Search
+    try:
+        search_btn = driver.find_element(By.XPATH, "//input[@value='Search'] | //button[contains(text(),'Search')]")
+        driver.execute_script("arguments[0].click();", search_btn)
+        time.sleep(ORG_PAGE_WAIT)
+        print(f"  Search submitted for category: '{category}'")
+        return True
+    except Exception as e:
+        print(f"  Warning: Could not click Search button: {e}")
+        return False
+
+
 # Get organisation links
 
 def get_org_links(driver):
@@ -100,18 +257,43 @@ def get_org_links(driver):
 
     all_links = driver.find_elements(By.TAG_NAME, "a")
     orgs = []
+    seen = set()
 
     for link in all_links:
         href = link.get_attribute("href") or ""
         text = link.text.strip()
         if ("DirectLink" in href
             and "FrontEndTendersByOrganisation" in href
-            and text.isdigit()):
+            and text.isdigit()
+            and href not in seen):
             count = int(text)
             if 0 < count <= MAX_PER_ORG:
+                seen.add(href)
                 orgs.append({"href": href, "count": count})
 
     print(f"Found {len(orgs)} organisations (≤{MAX_PER_ORG} tenders each).\n")
+    return orgs
+
+
+def get_org_links_from_current_page(driver):
+    """Reads org links from the already-loaded search results page."""
+    all_links = driver.find_elements(By.TAG_NAME, "a")
+    orgs = []
+    seen = set()
+
+    for link in all_links:
+        href = link.get_attribute("href") or ""
+        text = link.text.strip()
+        if ("DirectLink" in href
+            and "FrontEndTendersByOrganisation" in href
+            and text.isdigit()
+            and href not in seen):
+            count = int(text)
+            if 0 < count <= MAX_PER_ORG:
+                seen.add(href)
+                orgs.append({"href": href, "count": count})
+
+    print(f"Found {len(orgs)} organisations in filtered results (≤{MAX_PER_ORG} tenders each).\n")
     return orgs
 
 
@@ -292,10 +474,117 @@ def extract_and_save(tender_num, metadata, zip_files):
 
     return total, folder
 
+def scrape_category(driver, category, stats, total_so_far, captcha_done):
+    """
+    Runs the full scrape pipeline for a single product category:
+    1. Submits the filtered search for this category
+    2. Reads org links from results
+    3. Iterates orgs → tenders → download
+
+    Returns (new_total, captcha_done)
+    """
+    total = total_so_far
+
+    print(f"\n{'━' * 58}")
+    print(f"  Searching category: '{category}'")
+    print(f"{'━' * 58}")
+
+    search_ok = search_by_category(driver, category, captcha_solved=captcha_done)
+    if not search_ok:
+        print(f"  Skipping category '{category}' — search failed.")
+        return total, captcha_done
+
+    # First search requires CAPTCHA, mark as done after first successful search
+    captcha_done = True
+
+    orgs = get_org_links_from_current_page(driver)
+    if not orgs:
+        print(f"  No organisations found for category '{category}'.")
+        return total, captcha_done
+
+    for org_idx, org in enumerate(orgs):
+        if total >= MAX_TENDERS:
+            break
+
+        print(f"{'━' * 58}")
+        print(f"  Org {org_idx+1}/{len(orgs)} — {org['count']} tenders  [{category}]")
+        print(f"{'━' * 58}")
+
+        driver.get(org["href"])
+        time.sleep(TENDER_LIST_WAIT)
+        stats["orgs"] += 1
+
+        tenders = get_tender_links(driver)
+        print(f"  Found {len(tenders)} tenders.\n")
+
+        if not tenders:
+            continue
+
+        org_url = driver.current_url
+
+        for tender in tenders:
+            if total >= MAX_TENDERS:
+                break
+
+            total += 1
+            short_title = tender["title"][:50]
+            if len(tender["title"]) > 50:
+                short_title += "..."
+            print(f"  [{total}/{MAX_TENDERS}] {short_title}")
+
+            try:
+                driver.get(tender["href"])
+                time.sleep(TENDER_PAGE_WAIT)
+
+                metadata = get_metadata(driver)
+                metadata["title"] = tender["title"]
+                metadata["matched_category"] = category   # record which category matched
+                if metadata.get("tender_reference_number"):
+                    print(f"    Ref: {metadata['tender_reference_number']}")
+
+                zip_files = download_zip(driver, captcha_done=True)
+
+                if zip_files:
+                    count, folder = extract_and_save(total, metadata, zip_files)
+                    stats["ok"] += 1
+                    stats["files"] += count
+                    print(f"    ✓ Done — {count} files in {os.path.basename(folder)}/")
+                else:
+                    stats["failed"] += 1
+
+            except Exception as e:
+                print(f"    ✗ Error: {str(e)[:80]}")
+                stats["failed"] += 1
+
+            try:
+                driver.get(org_url)
+                time.sleep(5)
+            except Exception:
+                pass
+
+            time.sleep(BETWEEN_TENDERS)
+
+        print()
+
+    return total, captcha_done
+
+
 def main():
+    parser = argparse.ArgumentParser(description="eTenders scraper — category filtered by company profile")
+    parser.add_argument("--profile", default=None, help="Company capability description (e.g. 'electrical works, conveyors')")
+    args = parser.parse_args()
+
+    company_profile = args.profile
+    if not company_profile:
+        company_profile = input("Enter your company profile / capabilities: ").strip()
+    if not company_profile:
+        print("Error: company profile is required.")
+        sys.exit(1)
+
     print("=" * 58)
-    print("  eTenders.gov.in — ZIP Scraper v6")
+    print("  eTenders.gov.in — ZIP Scraper v7 (Category Filtered)")
     print("=" * 58)
+    print(f"  Profile: {company_profile}")
     print(f"  Target:  {MAX_TENDERS} tenders")
     print(f"  Output:  {EXTRACT_DIR}\n")
 
@@ -303,78 +592,84 @@ def main():
     total = 0
     stats = {"orgs": 0, "ok": 0, "files": 0, "failed": 0}
     captcha_done = False
+    matched_categories = []  # populated after LLM mapping
 
     try:
-        orgs = get_org_links(driver)
-        if not orgs:
-            print("No organisations found!")
-            return
+        # Step 1: Read available product categories from the portal dropdown
+        print("Step 1: Reading available Product Categories from portal...")
+        available_categories = get_product_categories(driver)
 
-        for org_idx, org in enumerate(orgs):
-            if total >= MAX_TENDERS:
-                break
+        # Step 2: Use LLM to map company profile to relevant categories
+        if available_categories and GROQ_API_KEY:
+            print("Step 2: Mapping company profile to portal categories via LLM...")
+            matched_categories = map_profile_to_categories(
+                company_profile, available_categories, GROQ_API_KEY
+            )
+        else:
+            matched_categories = []
 
-            print(f"{'━' * 58}")
-            print(f"  Org {org_idx+1}/{len(orgs)} — {org['count']} tenders")
-            print(f"{'━' * 58}")
-
-            driver.get(org["href"])
-            time.sleep(TENDER_LIST_WAIT)
-
-            stats["orgs"] += 1
-
-            tenders = get_tender_links(driver)
-            print(f"  Found {len(tenders)} tenders.\n")
-
-            if not tenders:
-                continue
-
-            org_url = driver.current_url
-
-            for tender in tenders:
+        # Step 3: If no categories matched, fall back to unfiltered scrape
+        if not matched_categories:
+            print("  No category match found — falling back to unfiltered scrape.\n")
+            orgs = get_org_links(driver)
+            if not orgs:
+                print("No organisations found!")
+                return
+            # Run unfiltered scrape using original logic
+            for org_idx, org in enumerate(orgs):
                 if total >= MAX_TENDERS:
                     break
-
-                total += 1
-                short_title = tender["title"][:50]
-                if len(tender["title"]) > 50:
-                    short_title += "..."
-                print(f"  [{total}/{MAX_TENDERS}] {short_title}")
-
-                try:
-                    driver.get(tender["href"])
-                    time.sleep(TENDER_PAGE_WAIT)
-
-                    metadata = get_metadata(driver)
-                    metadata["title"] = tender["title"]
-                    if metadata.get("tender_reference_number"):
-                        print(f"    Ref: {metadata['tender_reference_number']}")
-
-                    zip_files = download_zip(driver, captcha_done)
-                    if not captcha_done and zip_files:
-                        captcha_done = True
-
-                    if zip_files:
-                        count, folder = extract_and_save(total, metadata, zip_files)
-                        stats["ok"] += 1
-                        stats["files"] += count
-                        print(f"    ✓ Done — {count} files in {os.path.basename(folder)}/")
-                    else:
+                print(f"{'━' * 58}")
+                print(f"  Org {org_idx+1}/{len(orgs)} — {org['count']} tenders")
+                print(f"{'━' * 58}")
+                driver.get(org["href"])
+                time.sleep(TENDER_LIST_WAIT)
+                stats["orgs"] += 1
+                tenders = get_tender_links(driver)
+                print(f"  Found {len(tenders)} tenders.\n")
+                if not tenders:
+                    continue
+                org_url = driver.current_url
+                for tender in tenders:
+                    if total >= MAX_TENDERS:
+                        break
+                    total += 1
+                    short_title = tender["title"][:50]
+                    print(f"  [{total}/{MAX_TENDERS}] {short_title}")
+                    try:
+                        driver.get(tender["href"])
+                        time.sleep(TENDER_PAGE_WAIT)
+                        metadata = get_metadata(driver)
+                        metadata["title"] = tender["title"]
+                        zip_files = download_zip(driver, captcha_done)
+                        if not captcha_done and zip_files:
+                            captcha_done = True
+                        if zip_files:
+                            count, folder = extract_and_save(total, metadata, zip_files)
+                            stats["ok"] += 1
+                            stats["files"] += count
+                            print(f"    ✓ Done — {count} files in {os.path.basename(folder)}/")
+                        else:
+                            stats["failed"] += 1
+                    except Exception as e:
+                        print(f"    ✗ Error: {str(e)[:80]}")
                         stats["failed"] += 1
-
-                except Exception as e:
-                    print(f"    ✗ Error: {str(e)[:80]}")
-                    stats["failed"] += 1
-
-                try:
-                    driver.get(org_url)
-                    time.sleep(5)
-                except Exception:
-                    pass
-
-                time.sleep(BETWEEN_TENDERS)
-
-            print()
+                    try:
+                        driver.get(org_url)
+                        time.sleep(5)
+                    except Exception:
+                        pass
+                    time.sleep(BETWEEN_TENDERS)
+                print()
+        else:
+            # Step 4: Scrape each matched category in turn
+            print(f"\nStep 3: Scraping {len(matched_categories)} matched categories...\n")
+            for category in matched_categories:
+                if total >= MAX_TENDERS:
+                    break
+                total, captcha_done = scrape_category(
+                    driver, category, stats, total, captcha_done
+                )
 
     except KeyboardInterrupt:
         print("\n\nStopped by user (Ctrl+C)")
@@ -395,6 +690,9 @@ def main():
     print(f"\n{'=' * 58}")
     print("  DONE")
     print(f"{'=' * 58}")
+    print(f"  Profile:          {company_profile}")
+    cats_display = ", ".join(matched_categories) if matched_categories else "unfiltered"
+    print(f"  Categories used:  {cats_display}")
     print(f"  Orgs scraped:     {stats['orgs']}")
     print(f"  Tenders total:    {total}")
     print(f"  ZIPs downloaded:  {stats['ok']}")
